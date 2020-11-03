@@ -1,0 +1,11 @@
+version: "3"
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:11.0.2
+    network_mode: "host"
+    ports:
+      - "8080:8080"
+    environment:
+      - KEYCLOAK_USER=admin
+      - KEYCLOAK_PASSWORD=admin
+    command: -Djboss.bind.address.private=127.0.0.1 -Djboss.bind.address=127.0.0.1

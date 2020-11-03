@@ -1,0 +1,16 @@
+[package]
+name = "keylink"
+version = "0.1.0"
+authors = ["Simon Bihel"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+log = "0.4.11"
+anyhow = "1.0.33"
+rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "0c150c2", features = ["tls"]}
+openidconnect = { git = "https://github.com/ramosbugs/openidconnect-rs", rev = "f4a7abe" }
+rocket_airlock = { git = "https://github.com/Weasy666/rocket_airlock", rev = "497d466c7eef30e0f5aaf245e940308629a404c7" }
+rocket_contrib = { git = "https://github.com/SergioBenitez/Rocket", rev = "0c150c2", default-features = false, features = ["diesel_sqlite_pool"]}
+diesel = { version = "1.0", default-features = false}
