@@ -12,5 +12,12 @@ anyhow = "1.0.33"
 rocket = { git = "https://github.com/SergioBenitez/Rocket", rev = "0c150c2", features = ["tls"]}
 openidconnect = { git = "https://github.com/ramosbugs/openidconnect-rs", rev = "f4a7abe" }
 rocket_airlock = { git = "https://github.com/Weasy666/rocket_airlock", rev = "497d466c7eef30e0f5aaf245e940308629a404c7" }
-rocket_contrib = { git = "https://github.com/SergioBenitez/Rocket", rev = "0c150c2", default-features = false, features = ["diesel_sqlite_pool"]}
-diesel = { version = "1.0", default-features = false}
+rocket_contrib = { git = "https://github.com/SergioBenitez/Rocket", rev = "0c150c2", default-features = false, features = ["diesel_sqlite_pool", "tera_templates", "serve"]}
+# Need to import diesel (even though rocket_contrib re-export it) because of https://github.com/SergioBenitez/Rocket/issues/950
+diesel = { version = "1.0", default-features = false, features = ["sqlite"]}
+ssi = { git = "ssh://github.com/spruceid/ssi.git", rev = "8d02b7cb676e0bc49599cc3c706f7ba77add9934" }
+jsonwebtoken = { git = "ssh://github.com/spruceid/ssi.git", rev = "8d02b7cb676e0bc49599cc3c706f7ba77add9934" }
+# See https://github.com/rust-lang/cargo/issues/1851 if you have issues with SSH
+# tl;dr: you most probably need to add you SSH key with `ssh-add` because Cargo doesn't read ~/.ssh/config
+# or change the URL to use HTTPS
+serde = "1.0.59"

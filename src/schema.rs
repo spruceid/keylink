@@ -1,6 +1,8 @@
 table! {
-    keys (id) {
-        id -> Nullable<Binary>,
-        key -> Text,
+    keys (user, name) {
+        user -> Text,
+        name -> Text,
+        public_key -> Binary,
+        private_key -> Binary,
     }
 }

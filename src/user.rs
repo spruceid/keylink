@@ -8,7 +8,7 @@ use rocket::{
 };
 use rocket_airlock::{Airlock, Hatch};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct User {
     pub(crate) name: String,
 }
