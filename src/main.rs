@@ -4,6 +4,9 @@ mod models;
 mod schema;
 mod user;
 
+use models::NewKey;
+use user::User;
+
 #[macro_use]
 extern crate rocket;
 #[macro_use]
@@ -14,34 +17,38 @@ extern crate diesel;
 use jsonwebtoken::crypto;
 use jsonwebtoken::Algorithm;
 use jsonwebtoken::{DecodingKey, EncodingKey};
-use models::NewKey;
+use rocket::data::{Data, ToByteUnit};
+use rocket::http::ContentType;
 use rocket::request::Form;
+use rocket::response::NamedFile;
 use rocket::response::Redirect;
 use rocket::{get, routes};
 use rocket_airlock::Airlock;
+use rocket_contrib::json::Json;
 use rocket_contrib::serve::StaticFiles;
-use rocket_contrib::templates::tera::Context;
-use rocket_contrib::templates::Template;
-use ssi::der::{BitString, Ed25519PrivateKey, Ed25519PublicKey, OctetString, DER};
-use ssi::jwk::Params;
-use ssi::jwk::JWK;
+use rocket_multipart_form_data::{
+    MultipartFormData, MultipartFormDataError, MultipartFormDataField, MultipartFormDataOptions,
+};
+use ssi::der::{BitString, Ed25519PrivateKey, OctetString, DER};
+use ssi::jwk::{Params, JWK};
 use std::env;
-use user::User;
+use std::str;
 
-#[get("/")]
-async fn index(user: User, conn: db::KeysDb) -> Template {
+#[get("/keys")]
+async fn keys(user: User, conn: db::KeysDb) -> Json<Vec<String>> {
     let user_name = user.name;
     let keys = db::get_keys(user_name.clone(), &conn).await;
-    let mut context = Context::new();
-    context.insert("keys", &keys);
-    context.insert("user_name", &user_name);
-    Template::render("my_keys", context.into_json())
+    Json(keys.into_iter().map(|key| key.name).collect())
+}
+
+#[get("/")]
+async fn index(_user: User, _conn: db::KeysDb) -> Option<NamedFile> {
+    NamedFile::open("vue/dist/index.html").await.ok()
 }
 
 #[get("/", rank = 2)]
-fn index_anon() -> Template {
-    let context = Context::new();
-    Template::render("index", context.into_json())
+async fn index_anon() -> Option<NamedFile> {
+    NamedFile::open("vue/dist/login.html").await.ok()
 }
 
 #[derive(FromForm)]
@@ -74,7 +81,7 @@ struct SignDocForm {
 }
 
 #[post("/sign", data = "<sign_doc_form>")]
-async fn sign_doc(sign_doc_form: Form<SignDocForm>, user: User, conn: db::KeysDb) -> String {
+async fn sign_doc(sign_doc_form: Form<SignDocForm>, user: User, conn: db::KeysDb) -> Json<String> {
     info_!("Request to sign {:?} for {:?}", sign_doc_form, user);
     let key = db::get_key(user.name, sign_doc_form.key.clone(), &conn).await;
     let public_key = BitString(key.public_key);
@@ -85,12 +92,13 @@ async fn sign_doc(sign_doc_form: Form<SignDocForm>, user: User, conn: db::KeysDb
     }
     .into();
     let encoding_key = EncodingKey::from_ed_der(&der_key);
-    crypto::sign_bytes(
+    let sig = crypto::sign_bytes(
         &sign_doc_form.doc.as_bytes(),
         &encoding_key,
         Algorithm::EdDSA,
     )
-    .unwrap()
+    .unwrap();
+    Json(sig)
 }
 
 #[derive(FromForm, Debug)]
@@ -101,18 +109,22 @@ struct VerifyDocForm {
 }
 
 #[post("/verify", data = "<verify_doc_form>")]
-async fn verify_doc(verify_doc_form: Form<VerifyDocForm>, user: User, conn: db::KeysDb) -> String {
+async fn verify_doc(
+    verify_doc_form: Form<VerifyDocForm>,
+    user: User,
+    conn: db::KeysDb,
+) -> Json<bool> {
     info_!("Request to verify {:?} for {:?}", verify_doc_form, user);
     let key = db::get_key(user.name, verify_doc_form.key.clone(), &conn).await;
     let decoding_key = DecodingKey::from_ed_der(&key.public_key);
-    crypto::verify_bytes(
+    let check = crypto::verify_bytes(
         &verify_doc_form.sig,
         &verify_doc_form.doc.as_bytes(),
         &decoding_key,
         Algorithm::EdDSA,
     )
-    .unwrap()
-    .to_string()
+    .unwrap();
+    Json(check)
 }
 
 #[launch]
@@ -120,13 +132,12 @@ fn rocket() -> rocket::Rocket {
     rocket::ignite()
         .mount(
             "/",
-            routes![index, index_anon, new_key, sign_doc, verify_doc],
+            routes![index, index_anon, new_key, sign_doc, verify_doc, keys,],
         )
         .mount(
-            "/static",
-            StaticFiles::from(concat!(env!("CARGO_MANIFEST_DIR"), "/templates/static")),
+            "/",
+            StaticFiles::from(concat!(env!("CARGO_MANIFEST_DIR"), "/vue/dist")),
         )
         .attach(db::KeysDb::fairing())
-        .attach(Template::fairing())
         .attach(Airlock::<hatch::OidcHatch>::fairing())
 }
