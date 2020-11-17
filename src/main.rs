@@ -1,8 +1,10 @@
 mod db;
+mod doc;
 mod hatch;
 mod models;
 mod schema;
 mod user;
+mod vc;
 
 use models::NewKey;
 use user::User;
@@ -31,6 +33,7 @@ use rocket_multipart_form_data::{
 };
 use ssi::der::{BitString, Ed25519PrivateKey, OctetString, DER};
 use ssi::jwk::{Params, JWK};
+use ssi::vc::Credential;
 use std::env;
 use std::str;
 
@@ -127,12 +130,67 @@ async fn verify_doc(
     Json(check)
 }
 
+#[post("/vc", data = "<data>")]
+async fn vc_doc(
+    content_type: &ContentType,
+    data: Data,
+    user: User,
+    conn: db::KeysDb,
+) -> Json<Credential> {
+    let options = MultipartFormDataOptions::with_multipart_form_data_fields(vec![
+        MultipartFormDataField::raw("file"),
+        MultipartFormDataField::raw("key"),
+    ]);
+    let mut multipart_form_data =
+        match MultipartFormData::parse(content_type, data.open(2.mebibytes()), options).await {
+            Ok(multipart_form_data) => multipart_form_data,
+            Err(err) => match err {
+                MultipartFormDataError::DataTooLargeError(_) => {
+                    panic!("The file is too large.");
+                }
+                MultipartFormDataError::DataTypeError(_) => {
+                    panic!("The file is not an image.");
+                }
+                _ => panic!("{:?}", err),
+            },
+        };
+    let file = multipart_form_data.raw.remove("file");
+    let key_name = match multipart_form_data.raw.remove("key") {
+        Some(mut key_name) => key_name.remove(0).raw,
+        None => panic!("No key name"),
+    };
+
+    let (title, doc) = match file {
+        Some(mut doc) => {
+            let raw = doc.remove(0);
+
+            let content_type = raw.content_type;
+            let file_name = raw.file_name.unwrap();
+            let data = raw.raw;
+
+            (file_name, data)
+        }
+        None => panic!("Please input a file."),
+    };
+
+    let key = db::get_key(
+        user.name,
+        str::from_utf8(&key_name).unwrap().to_string(),
+        &conn,
+    )
+    .await;
+
+    let credential = vc::issue_vc(key, &str::from_utf8(&doc).unwrap(), &title);
+
+    Json(credential)
+}
+
 #[launch]
 fn rocket() -> rocket::Rocket {
     rocket::ignite()
         .mount(
             "/",
-            routes![index, index_anon, new_key, sign_doc, verify_doc, keys,],
+            routes![index, index_anon, new_key, sign_doc, verify_doc, vc_doc, keys,],
         )
         .mount(
             "/",
