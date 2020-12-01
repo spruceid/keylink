@@ -21,9 +21,10 @@ rocket-multipart-form-data = { git = "https://github.com/sbihel/rocket-multipart
 
 diesel = { version = "1.0", default-features = false, features = ["sqlite"]}
 
-ssi = { git = "ssh://github.com/spruceid/ssi.git", rev = "8d02b7cb676e0bc49599cc3c706f7ba77add9934" }
-jsonwebtoken = { git = "ssh://github.com/spruceid/ssi.git", rev = "8d02b7cb676e0bc49599cc3c706f7ba77add9934" }
+ssi = { git = "ssh://github.com/spruceid/ssi.git", rev = "491956c18d9c2e6fe622167a46293da98f8b5714" }
+jsonwebtoken = { git = "ssh://github.com/spruceid/ssi.git", rev = "491956c18d9c2e6fe622167a46293da98f8b5714" }
 # See https://github.com/rust-lang/cargo/issues/1851 if you have issues with SSH
 # tl;dr: you most probably need to add you SSH key with `ssh-add` because Cargo doesn't read ~/.ssh/config
 # or change the URL to use HTTPS
 iscc-rs = { git = "https://github.com/sbihel/iscc-rs", rev = "27839eaff697236c601138e3263a9d9d3ef9783b" }
+chrono = { version = "0.4", features = ["serde"] }
