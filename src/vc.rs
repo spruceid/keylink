@@ -4,7 +4,9 @@ use super::models::Key;
 use ssi::jwk::{Base64urlUInt, OctetParams, Params, JWK};
 use ssi::one_or_many::OneOrMany;
 use ssi::vc;
-use ssi::vc::{Contexts, Credential, CredentialSubject, LinkedDataProofOptions, URI};
+use ssi::vc::{
+    Contexts, Credential, CredentialSubject, Issuer, LinkedDataProofOptions, ProofPurpose, URI,
+};
 
 pub fn issue_vc(key: Key, doc: &str, title: &str) -> Credential {
     let jwk = JWK {
@@ -23,10 +25,13 @@ pub fn issue_vc(key: Key, doc: &str, title: &str) -> Credential {
         x509_thumbprint_sha256: None,
     };
 
+    let issuer = jwk.to_did().unwrap();
+    let verification_method = jwk.to_verification_method().unwrap();
+
     let mut credential = Credential {
-        context: Contexts::One(vc::Context::URI(URI::String(
+        context: Contexts::Many(vec![vc::Context::URI(URI::String(
             "https://www.w3.org/2018/credentials/v1".to_string(),
-        ))),
+        ))]),
         id: None,
         type_: OneOrMany::One("VerifiableCredential".to_string()),
         credential_subject: OneOrMany::One(CredentialSubject {
@@ -34,11 +39,12 @@ pub fn issue_vc(key: Key, doc: &str, title: &str) -> Credential {
                 "did:iscc:{}",
                 get_iscc_id_text(title, doc).unwrap()
             ))),
+            identifier: None,
             name: None,
             property_set: None,
         }),
-        issuer: None,
-        issuance_date: None,
+        issuer: Some(Issuer::URI(URI::String(issuer))),
+        issuance_date: Some(chrono::Utc::now()),
         proof: None,
         expiration_date: None,
         credential_status: None,
@@ -48,11 +54,12 @@ pub fn issue_vc(key: Key, doc: &str, title: &str) -> Credential {
         refresh_service: None,
     };
     let options = LinkedDataProofOptions {
-        verification_method: None,
-        proof_purpose: None,
+        verification_method: Some(verification_method),
+        proof_purpose: Some(ProofPurpose::AssertionMethod),
         created: None,
         challenge: None,
         domain: None,
+        checks: None,
     };
     let proof = credential.generate_proof(&jwk, &options).unwrap();
     credential.add_proof(proof);
