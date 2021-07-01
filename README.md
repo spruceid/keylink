@@ -1,4 +1,16 @@
+![keylink header](/docs/keylinkheader.png)
+
+[![](https://img.shields.io/badge/License-Apache--2.0-green)](https://github.com/spruceid/keylink/blob/main/LICENSE) [![](https://img.shields.io/twitter/follow/sprucesystems?label=Follow&style=social)](https://twitter.com/sprucesystems)
+
 # Keylink
+
+Keylink is an in-development tool that links system accounts to keys. 
+Accounts are authenticated using combinations of widely adopted protocols 
+such as OpenID Connect and FIDO2. Keys can range from cryptographic 
+keys to API credentials. Keylink can gradually bootstrap PKI within 
+existing complex IT systems. It supports a centralized PKI operating 
+mode that can evolve into decentralized PKI, and further coordinates 
+with existing PKI and KMS installations.
 
 ## Build
 
