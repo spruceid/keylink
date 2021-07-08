@@ -1,3 +1,10 @@
+#[macro_use]
+extern crate rocket;
+#[macro_use]
+extern crate serde_derive;
+#[macro_use]
+extern crate diesel;
+
 mod db;
 mod doc;
 mod hatch;
@@ -6,196 +13,292 @@ mod schema;
 mod user;
 mod vc;
 
+use db::KeylinkDbConn;
+use did_method_key::DIDKey;
 use models::NewKey;
 use user::User;
 
-#[macro_use]
-extern crate rocket;
-#[macro_use]
-extern crate rocket_contrib;
-#[macro_use]
-extern crate diesel;
-
-use jsonwebtoken::crypto;
-use jsonwebtoken::Algorithm;
-use jsonwebtoken::{DecodingKey, EncodingKey};
-use rocket::data::{Data, ToByteUnit};
-use rocket::http::ContentType;
-use rocket::request::Form;
-use rocket::response::NamedFile;
-use rocket::response::Redirect;
-use rocket::{get, routes};
-use rocket_airlock::Airlock;
-use rocket_contrib::json::Json;
-use rocket_contrib::serve::StaticFiles;
-use rocket_multipart_form_data::{
-    MultipartFormData, MultipartFormDataError, MultipartFormDataField, MultipartFormDataOptions,
+use anyhow::{anyhow, Error};
+use rocket::{
+    figment::{
+        providers::{Env, Format, Toml},
+        Figment,
+    },
+    form::Form,
+    fs::{FileServer, TempFile},
+    get,
+    response::{Debug, Redirect},
+    routes,
+    serde::json::Json,
+    tokio::fs::read,
+    Config,
 };
-use ssi::der::{BitString, Ed25519PrivateKey, OctetString, DER};
-use ssi::jwk::{Params, JWK};
-use ssi::vc::Credential;
+use rocket_airlock::Airlock;
+use ssi::{
+    jwk::{Algorithm, JWK},
+    jws,
+    vc::{Credential, LinkedDataProofOptions},
+};
 use std::env;
-use std::str;
+
+#[get("/user")]
+async fn user_(user: User) -> Json<User> {
+    Json(user)
+}
 
 #[get("/keys")]
-async fn keys(user: User, conn: db::KeysDb) -> Json<Vec<String>> {
-    let user_name = user.name;
-    let keys = db::get_keys(user_name.clone(), &conn).await;
-    Json(keys.into_iter().map(|key| key.name).collect())
+async fn keys_list(
+    user: User,
+    conn: KeylinkDbConn,
+) -> Result<Option<Json<Vec<String>>>, Debug<Error>> {
+    if let Some(keys) = db::get_keys(user.email.clone(), &conn).await? {
+        Ok(Some(Json(keys.into_iter().map(|key| key.name).collect())))
+    } else {
+        Ok(None)
+    }
 }
 
-#[get("/")]
-async fn index(_user: User, _conn: db::KeysDb) -> Option<NamedFile> {
-    NamedFile::open("vue/dist/index.html").await.ok()
-}
-
-#[get("/", rank = 2)]
-async fn index_anon() -> Option<NamedFile> {
-    NamedFile::open("vue/dist/login.html").await.ok()
-}
-
-#[derive(FromForm)]
+#[derive(Deserialize)]
 struct NewKeyForm {
     name: String,
 }
 
-#[post("/keys", data = "<new_key_form>")]
-async fn new_key(new_key_form: Form<NewKeyForm>, user: User, conn: db::KeysDb) -> Redirect {
-    let jwk = JWK::generate_ed25519().unwrap();
-    match jwk.params {
-        Params::OKP(params) => {
-            let new_key = NewKey {
-                user: user.name,
-                name: new_key_form.name.clone(),
-                public_key: params.public_key.0,
-                private_key: params.private_key.unwrap().0,
-            };
-            db::insert_key(new_key, &conn).await
-        }
-        _ => (),
-    }
-    Redirect::to("/")
+#[post("/keys", format = "json", data = "<form>")]
+async fn keys_create(
+    form: Json<NewKeyForm>,
+    user: User,
+    conn: KeylinkDbConn,
+) -> Result<Redirect, Debug<Error>> {
+    let jwk = JWK::generate_ed25519().map_err(|e| anyhow!("Key generation errorr: {}", e))?;
+    let new_key = NewKey {
+        user_id: user.email,
+        name: form.name.clone(),
+        jwk: serde_json::to_value(jwk)
+            .map_err(|e| anyhow!("Error while serializing JWK: {}", e))?,
+    };
+    db::insert_key(new_key, &conn).await?;
+    Ok(Redirect::to("/"))
 }
 
-#[derive(FromForm, Debug)]
-struct SignDocForm {
+#[derive(FromForm)]
+struct BytesSignForm {
     key: String,
     doc: String,
 }
 
-#[post("/sign", data = "<sign_doc_form>")]
-async fn sign_doc(sign_doc_form: Form<SignDocForm>, user: User, conn: db::KeysDb) -> Json<String> {
-    info_!("Request to sign {:?} for {:?}", sign_doc_form, user);
-    let key = db::get_key(user.name, sign_doc_form.key.clone(), &conn).await;
-    let public_key = BitString(key.public_key);
-    let private_key = OctetString(key.private_key);
-    let der_key: DER = Ed25519PrivateKey {
-        public_key,
-        private_key,
+#[post("/bytes/sign", data = "<form>")]
+async fn bytes_sign(
+    form: Form<BytesSignForm>,
+    user: User,
+    conn: KeylinkDbConn,
+) -> Result<Option<Json<String>>, Debug<Error>> {
+    if let Some(key) = db::get_key(user.email, form.key.clone(), &conn).await? {
+        let sig = jws::sign_bytes_b64(
+            Algorithm::EdDSA,
+            &form.doc.as_bytes(),
+            &serde_json::from_value(key.jwk)
+                .map_err(|e| anyhow!("Error while deserializing JWK: {}", e))?,
+        )
+        .map_err(|e| anyhow!("Signing error: {}", e))?;
+        Ok(Some(Json(sig)))
+    } else {
+        Ok(None)
     }
-    .into();
-    let encoding_key = EncodingKey::from_ed_der(&der_key);
-    let sig = crypto::sign_bytes(
-        &sign_doc_form.doc.as_bytes(),
-        &encoding_key,
-        Algorithm::EdDSA,
-    )
-    .unwrap();
-    Json(sig)
 }
 
-#[derive(FromForm, Debug)]
-struct VerifyDocForm {
+#[derive(FromForm)]
+struct BytesVerifyForm {
     key: String,
     doc: String,
     sig: String,
 }
-
-#[post("/verify", data = "<verify_doc_form>")]
-async fn verify_doc(
-    verify_doc_form: Form<VerifyDocForm>,
+#[post("/bytes/verify", data = "<form>")]
+async fn bytes_verify(
+    form: Form<BytesVerifyForm>,
     user: User,
-    conn: db::KeysDb,
-) -> Json<bool> {
-    info_!("Request to verify {:?} for {:?}", verify_doc_form, user);
-    let key = db::get_key(user.name, verify_doc_form.key.clone(), &conn).await;
-    let decoding_key = DecodingKey::from_ed_der(&key.public_key);
-    let check = crypto::verify_bytes(
-        &verify_doc_form.sig,
-        &verify_doc_form.doc.as_bytes(),
-        &decoding_key,
-        Algorithm::EdDSA,
-    )
-    .unwrap();
-    Json(check)
+    conn: KeylinkDbConn,
+) -> Result<Option<Json<bool>>, Debug<Error>> {
+    let decoded_sig = base64::decode_config(form.sig.clone(), base64::URL_SAFE_NO_PAD)
+        .map_err(|e| anyhow!("Error decoding signature: {}", e))?;
+    if let Some(key) = db::get_key(user.email, form.key.clone(), &conn).await? {
+        jws::verify_bytes(
+            Algorithm::EdDSA,
+            &form.doc.as_bytes(),
+            &serde_json::from_value(key.jwk)
+                .map_err(|e| anyhow!("Error while deserializing JWK: {}", e))?,
+            &decoded_sig,
+        )
+        .map_err(|e| anyhow!("Verification error: {}", e))?;
+        // Should probably distinguish hard errors from bad signature.
+        Ok(Some(Json(true)))
+    } else {
+        Ok(None)
+    }
 }
 
-#[post("/vc", data = "<data>")]
-async fn vc_doc(
-    content_type: &ContentType,
-    data: Data,
+#[derive(FromForm)]
+struct ISCCSignForm<'f> {
+    key: String,
+    doc: TempFile<'f>,
+    options: Option<Json<LinkedDataProofOptions>>,
+}
+
+#[post("/iscc/issue", data = "<form>")]
+async fn iscc_vc_issue(
+    mut form: Form<ISCCSignForm<'_>>,
     user: User,
-    conn: db::KeysDb,
-) -> Json<Credential> {
-    let options = MultipartFormDataOptions::with_multipart_form_data_fields(vec![
-        MultipartFormDataField::raw("file"),
-        MultipartFormDataField::raw("key"),
-    ]);
-    let mut multipart_form_data =
-        match MultipartFormData::parse(content_type, data.open(2.mebibytes()), options).await {
-            Ok(multipart_form_data) => multipart_form_data,
-            Err(err) => match err {
-                MultipartFormDataError::DataTooLargeError(_) => {
-                    panic!("The file is too large.");
-                }
-                MultipartFormDataError::DataTypeError(_) => {
-                    panic!("The file is not an image.");
-                }
-                _ => panic!("{:?}", err),
-            },
-        };
-    let file = multipart_form_data.raw.remove("file");
-    let key_name = match multipart_form_data.raw.remove("key") {
-        Some(mut key_name) => key_name.remove(0).raw,
-        None => panic!("No key name"),
+    conn: KeylinkDbConn,
+) -> Result<Option<Json<Credential>>, Debug<Error>> {
+    // TODO stream the data directly without writing to disk -- will need changes in the iscc crate
+    form.doc
+        .persist_to("/tmp/file.txt")
+        .await
+        .map_err(|e| anyhow!("Could not persist data to file: {}", e))?;
+    let file_name = form
+        .doc
+        .name()
+        .ok_or_else(|| anyhow!("File without a name."))?;
+    let content_type = form
+        .doc
+        .content_type()
+        .ok_or_else(|| anyhow!("File without a content type."))?;
+    let options = if let Some(o) = form.options.as_ref().map(|o| o.0.clone()) {
+        o
+    } else {
+        LinkedDataProofOptions::default()
     };
+    if let Some(key) = db::get_key(user.email, form.key.clone(), &conn).await? {
+        let credential = vc::issue_iscc_vc(
+            key,
+            options,
+            &read("/tmp/file.txt")
+                .await
+                .map_err(|e| anyhow!("Could not read file: {}", e))?,
+            file_name,
+            content_type,
+        )
+        .await?;
+        Ok(Some(Json(credential)))
+    } else {
+        Ok(None)
+    }
+}
 
-    let (title, doc) = match file {
-        Some(mut doc) => {
-            let raw = doc.remove(0);
+#[derive(FromForm)]
+struct ISCCVerifyForm<'f> {
+    credential: Json<Credential>,
+    doc: TempFile<'f>,
+    options: Option<Json<LinkedDataProofOptions>>,
+}
 
-            let content_type = raw.content_type;
-            let file_name = raw.file_name.unwrap();
-            let data = raw.raw;
+#[post("/iscc/verify", data = "<form>")]
+async fn iscc_vc_verify(
+    mut form: Form<ISCCVerifyForm<'_>>,
+    _user: User,
+) -> Result<Json<bool>, Debug<Error>> {
+    // TODO stream the data directly without writing to disk -- will need changes in the iscc crate
+    form.doc
+        .persist_to("/tmp/file.txt")
+        .await
+        .map_err(|e| anyhow!("Could not persist data to file: {}", e))?;
+    let file_name = form
+        .doc
+        .name()
+        .ok_or_else(|| anyhow!("File without a name."))?;
+    let content_type = form
+        .doc
+        .content_type()
+        .ok_or_else(|| anyhow!("File without a content type."))?;
+    Ok(Json(
+        vc::verify_iscc_vc(
+            form.credential.0.clone(),
+            form.options.as_ref().map(|o| o.0.clone()),
+            &read("/tmp/file.txt")
+                .await
+                .map_err(|e| anyhow!("Could not read file: {}", e))?,
+            file_name,
+            content_type,
+        )
+        .await?,
+    ))
+}
 
-            (file_name, data)
-        }
-        None => panic!("Please input a file."),
-    };
+#[derive(Deserialize)]
+struct CredentialIssueForm {
+    key: String,
+    credential: Credential,
+    #[serde(default)]
+    options: LinkedDataProofOptions,
+}
+#[post("/credentials/issue", format = "json", data = "<form>")]
+async fn vc_issue(
+    form: Json<CredentialIssueForm>,
+    user: User,
+    conn: KeylinkDbConn,
+) -> Result<Option<Json<Credential>>, Debug<Error>> {
+    if let Some(key) = db::get_key(user.email, form.key.clone(), &conn).await? {
+        let jwk = &serde_json::from_value(key.jwk)
+            .map_err(|e| anyhow!("Error while deserializing JWK: {}", e))?;
+        let mut res = form.credential.clone();
+        // TODO consider using DIDKit to cover all cases, e.g. JWT
+        let proof = form
+            .credential
+            .generate_proof(&jwk, &form.options)
+            .await
+            .map_err(|e| anyhow!("Error generating credential proof: {}", e))?;
+        res.add_proof(proof);
+        Ok(Some(Json(res)))
+    } else {
+        Ok(None)
+    }
+}
 
-    let key = db::get_key(
-        user.name,
-        str::from_utf8(&key_name).unwrap().to_string(),
-        &conn,
-    )
-    .await;
+// TODO add key in the form to make sure the issuer is the correct key?
+#[derive(Deserialize)]
+struct CredentialVerifyForm {
+    credential: Credential,
+    #[serde(default)]
+    options: LinkedDataProofOptions,
+}
 
-    let credential = vc::issue_vc(key, &str::from_utf8(&doc).unwrap(), &title);
-
-    Json(credential)
+#[post("/credentials/verify", format = "json", data = "<form>")]
+async fn vc_verify(form: Json<CredentialVerifyForm>, _user: User) -> Json<bool> {
+    let res = form
+        .credential
+        .verify(Some(form.options.clone()), &DIDKey)
+        .await;
+    Json(res.errors.is_empty())
 }
 
 #[launch]
-fn rocket() -> rocket::Rocket {
-    rocket::ignite()
+fn rocket() -> _ {
+    let config = Figment::from(Config::default())
+        // .merge(Serialized::defaults(config::Config::default()))
+        .merge(Toml::file("keylink.toml").nested())
+        .merge(Env::prefixed("KEYLINK_").split("__").global())
+        .merge(Env::prefixed("ROCKET_").global()); // That's just for easy access to ROCKET_LOG_LEVEL
+    debug!("{:#?}", config);
+
+    rocket::custom(config)
         .mount(
             "/",
-            routes![index, index_anon, new_key, sign_doc, verify_doc, vc_doc, keys,],
+            routes![
+                bytes_sign,
+                bytes_verify,
+                iscc_vc_issue,
+                iscc_vc_verify,
+                keys_create,
+                keys_list,
+                user_,
+                // Those endpoints are very similar to the VC-HTTP-API, maybe Keylink should extend that in some way instead of duplicating code
+                vc_issue,
+                vc_verify
+            ],
         )
         .mount(
             "/",
-            StaticFiles::from(concat!(env!("CARGO_MANIFEST_DIR"), "/vue/dist")),
+            FileServer::from(concat!(env!("CARGO_MANIFEST_DIR"), "/ui/build")),
         )
-        .attach(db::KeysDb::fairing())
+        .attach(db::KeylinkDbConn::fairing())
         .attach(Airlock::<hatch::OidcHatch>::fairing())
 }

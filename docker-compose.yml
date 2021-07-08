@@ -1,10 +1,74 @@
 version: "3"
 services:
-  keycloak:
-    image: quay.io/keycloak/keycloak:11.0.2
+  oidc:
+    container_name: oidc
+    image: soluto/oidc-server-mock
     ports:
-      - "8080:8080"
+      - "8080:80"
     environment:
-      DB_VENDOR: H2
-      KEYCLOAK_USER: admin
-      KEYCLOAK_PASSWORD: admin
+      ASPNETCORE_ENVIRONMENT: Development
+      SERVER_OPTIONS_INLINE: |
+        {
+          "AccessTokenJwtType": "JWT",
+          "Discovery": {
+            "ShowKeySet": true
+          }
+        }
+      ACCOUNT_OPTIONS_INLINE: |
+        {
+          "AutomaticRedirectAfterSignOut": true
+        }
+      CLIENTS_CONFIGURATION_INLINE: |
+        [
+            {
+                "ClientId": "mock-client",
+                "ClientSecrets": [
+                    "mock-client-secret"
+                ],
+                "AllowedGrantTypes": [
+                    "authorization_code"
+                ],
+                "AlwaysIncludeUserClaimsInIdToken": true,
+                "RequirePkce": false,
+                "RedirectUris": [
+                    "*"
+                ],
+                "AllowedScopes": [
+                    "openid",
+                    "profile",
+                    "email"
+                ]
+            }
+        ]
+      USERS_CONFIGURATION_INLINE: |
+        [
+          {
+            "SubjectId": "1",
+            "Username": "user1",
+            "Password": "pwd",
+            "Claims": [
+              {
+                "Type": "name",
+                "Value": "Foo Bar"
+              },
+              {
+                "Type": "email",
+                "Value": "foo@bar.com"
+              },
+              {
+                "Type": "preferred_username",
+                "Value": "user1"
+              }
+            ]
+          }
+        ]
+      # it uses "authorization_code" because hybrid flow doesn't seem to work
+
+  db:
+    image: postgres:9.6.20
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: keylink

@@ -1,8 +1,8 @@
 table! {
-    keys (user, name) {
-        user -> Text,
-        name -> Text,
-        public_key -> Binary,
-        private_key -> Binary,
+    keys (user_id, name) {
+        user_id -> Varchar,
+        name -> Varchar,
+        jwk -> Jsonb,
+        created_at -> Timestamptz,
     }
 }

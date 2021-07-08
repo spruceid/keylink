@@ -1,38 +1,57 @@
-use crate::diesel::insert_into;
-use crate::diesel::query_dsl::filter_dsl::FilterDsl;
-use crate::diesel::ExpressionMethods;
-use crate::diesel::RunQueryDsl;
-use crate::schema::keys::dsl::keys;
-use crate::schema::keys::name;
-use crate::schema::keys::user;
-use rocket_contrib::databases::diesel::prelude::SqliteConnection;
+use crate::models::{Key, NewKey};
+use crate::schema::keys::{dsl::keys, name, user_id};
 
-use super::models::Key;
-use super::models::NewKey;
-
+use anyhow::Result;
+use rocket_sync_db_pools::{
+    database,
+    diesel::{
+        insert_into, query_dsl::filter_dsl::FilterDsl, result::Error::NotFound, ExpressionMethods,
+        PgConnection, RunQueryDsl,
+    },
+};
 use std::vec::Vec;
 
-#[database("keys")]
-pub struct KeysDb(SqliteConnection);
+#[database("keylink_db")]
+pub struct KeylinkDbConn(PgConnection);
 
-pub async fn get_keys(user_name: String, conn: &KeysDb) -> Vec<Key> {
-    conn.run(|c| keys.filter(user.eq(user_name)).load::<Key>(c))
+pub async fn get_keys(user_id_: String, conn: &KeylinkDbConn) -> Result<Option<Vec<Key>>> {
+    match conn
+        .run(|c| keys.filter(user_id.eq(user_id_)).load::<Key>(c))
         .await
-        .unwrap()
+    {
+        Ok(keys_) => {
+            if keys_.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(keys_))
+            }
+        }
+        Err(NotFound) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
-pub async fn get_key(user_name: String, key_name: String, conn: &KeysDb) -> Key {
-    conn.run(|c| {
-        keys.filter(user.eq(user_name))
-            .filter(name.eq(key_name))
-            .first::<Key>(c)
-    })
-    .await
-    .unwrap()
+pub async fn get_key(
+    user_id_: String,
+    key_name: String,
+    conn: &KeylinkDbConn,
+) -> Result<Option<Key>> {
+    match conn
+        .run(|c| {
+            keys.filter(user_id.eq(user_id_))
+                .filter(name.eq(key_name))
+                .first::<Key>(c)
+        })
+        .await
+    {
+        Ok(key) => Ok(Some(key)),
+        Err(NotFound) => Ok(None),
+        Err(e) => Err(e.into()),
+    }
 }
 
-pub async fn insert_key(new_key: NewKey, conn: &KeysDb) {
+pub async fn insert_key(new_key: NewKey, conn: &KeylinkDbConn) -> Result<()> {
     conn.run(move |c| insert_into(keys).values(new_key).execute(c))
-        .await
-        .unwrap();
+        .await?;
+    Ok(())
 }
