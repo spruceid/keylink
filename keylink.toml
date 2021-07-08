@@ -1,0 +1,18 @@
+[debug]
+# domain = "http://localhost:8000"
+# address = "127.0.0.1"
+# port = 8000
+# keep_alive = 5
+log_level = "normal"
+# limits = { forms = 32768 }
+
+[debug.airlock.openidconnect]
+# Url to the OpenID Connect Discovery endpoint to obtain the openid-configuration,
+# as per https://openid.net/specs/openid-connect-discovery-1_0.html
+discover_url = "http://0.0.0.0:8080"
+redirect_url = "/login"
+client_id = "mock-client"
+client_secret = "mock-client-secret"
+
+[debug.databases]
+keylink_db = { url = "postgres://postgres:postgres@localhost/keylink" }

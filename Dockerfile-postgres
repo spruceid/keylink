@@ -1,0 +1,3 @@
+FROM postgres:9.6.20
+
+ADD migrations/2020-11-03-101531_create_keylink/up.sql /docker-entrypoint-initdb.d

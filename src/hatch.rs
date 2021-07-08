@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Error};
-use log::{debug, info, warn};
 use openidconnect::{
     core::{self, CoreIdTokenClaims, CoreProviderMetadata, CoreResponseType},
     reqwest::async_http_client,
@@ -19,12 +18,12 @@ use rocket::{
         uri::{Absolute, Uri},
         Cookie, CookieJar, SameSite, Status,
     },
-    info_, log_,
+    info_,
     request::{FromRequest, Outcome},
     response::{Debug, Redirect},
     warn_,
     yansi::Paint,
-    Request, Route,
+    Build, Request, Rocket, Route,
 };
 use rocket_airlock::{Airlock, Communicator, Hatch};
 use std::ops::{Deref, DerefMut};
@@ -44,11 +43,10 @@ impl DerefMut for CoreClient {
         &mut self.0
     }
 }
-
 #[rocket::async_trait]
 impl Communicator for CoreClient {
-    async fn from(config: Figment) -> Result<Self, Box<dyn std::error::Error>> {
-        let config = HatchConfig::from(config)?;
+    async fn from(rocket: &Rocket<Build>) -> Result<Self, Box<dyn std::error::Error>> {
+        let config = HatchConfig::from(Figment::from(rocket.figment()))?;
         let issuer_url =
             IssuerUrl::new(config.discover_url.to_string()).expect("Invalid issuer Url");
 
@@ -94,6 +92,7 @@ impl<'h> OidcHatch<'static> {
                 Nonce::new_random,
             )
             .add_scope(Scope::new("profile".to_string()))
+            .add_scope(Scope::new("email".to_string()))
             .url();
 
         let authorize_url = Absolute::parse(authorize_url.as_ref()).expect("Valid Url");
@@ -170,8 +169,10 @@ impl<'h> Hatch for OidcHatch<'static> {
         rocket::routes![login, login_callback]
     }
 
-    async fn from(config: Figment) -> Result<OidcHatch<'static>, Box<dyn std::error::Error>> {
-        let config = HatchConfig::from(config)?;
+    async fn from(
+        rocket: &Rocket<Build>,
+    ) -> Result<OidcHatch<'static>, Box<dyn std::error::Error>> {
+        let config = HatchConfig::from(Figment::from(rocket.figment()))?;
         let oidc_hatch = OidcHatch {
             config,
             client: None,
@@ -216,8 +217,25 @@ fn to_absolute_url<'h>(
     address: &str,
     port: u16,
 ) -> Result<Absolute<'h>, figment::Error> {
-    match Uri::parse(url) {
+    match Uri::parse_any(url) {
         Ok(Uri::Absolute(absolute)) => Ok(absolute.into_owned()),
+        Ok(Uri::Reference(reference)) => Absolute::parse(&format!(
+            "{}{}{}",
+            reference.scheme().map(|_| "").unwrap_or("http://"),
+            reference
+                .authority()
+                .map(|_| "")
+                .unwrap_or(&format!("{}:{}", address, port)),
+            &reference
+        ))
+        .map_err(|e| {
+            Kind::InvalidValue(
+                Actual::Other(format!("{} - Got: {}", e, &format!("{}", &reference))),
+                "Tried Origin".to_string(),
+            )
+            .into()
+        })
+        .map(|uri| uri.into_owned()),
         Ok(Uri::Origin(origin)) => {
             Absolute::parse(&format!("http://{}:{}{}", address, port, &origin))
                 .map_err(|e| {
@@ -242,7 +260,7 @@ fn to_absolute_url<'h>(
                 .into()
             })
             .map(|uri| uri.into_owned()),
-        Ok(Uri::Asterisk) => Err(Kind::InvalidValue(
+        Ok(Uri::Asterisk(_)) => Err(Kind::InvalidValue(
             Actual::Other(format!("Got: {}", url)),
             "Expected 'Uri' - Asterisk is not a valid redirect Url".to_string(),
         )
@@ -259,12 +277,12 @@ fn to_absolute_url<'h>(
 pub fn login(airlock: Airlock<OidcHatch<'static>>, cookies: &CookieJar<'_>) -> Redirect {
     let (authorize_url, csrf_state, nonce) = airlock.hatch.authorize_url();
     cookies.add_private(
-        Cookie::build("oicd_state", csrf_state)
+        Cookie::build("oidc_state", csrf_state)
             .same_site(SameSite::Lax)
             .finish(),
     );
     cookies.add_private(
-        Cookie::build("oicd_nonce", nonce)
+        Cookie::build("oidc_nonce", nonce)
             .same_site(SameSite::Lax)
             .finish(),
     );
@@ -287,22 +305,29 @@ pub(crate) async fn login_callback(
 
     // Use the token to retrieve the user's information.
     let claim_resonse = airlock.hatch.exchange_token(&auth_response).await?;
+    info!("{:?}", claim_resonse);
 
-    // Set a private cookie with the user's name, and redirect to the home page.
+    if let Some(u) = claim_resonse.claims.preferred_username() {
+        cookies.add_private(
+            Cookie::build("preferred_username", u.to_string())
+                .same_site(SameSite::Lax)
+                .finish(),
+        );
+    }
     cookies.add_private(
         Cookie::build(
-            "username",
+            "email",
             claim_resonse
                 .claims
-                .preferred_username()
-                .unwrap()
+                .email()
+                .ok_or_else(|| anyhow!("No email in claim."))?
                 .to_string(),
         )
         .same_site(SameSite::Lax)
         .finish(),
     );
     cookies.add_private(
-        Cookie::build("oicd_access_token", claim_resonse.access_token)
+        Cookie::build("oidc_access_token", claim_resonse.access_token)
             .same_site(SameSite::Lax)
             .finish(),
     );
@@ -310,6 +335,7 @@ pub(crate) async fn login_callback(
     Ok(Redirect::to("/"))
 }
 
+#[derive(Debug)]
 pub struct ClaimResponse {
     access_token: String,
     claims: CoreIdTokenClaims,
@@ -322,25 +348,23 @@ pub struct AuthenticationResponse {
 }
 
 #[rocket::async_trait]
-impl<'a, 'r> FromRequest<'a, 'r> for AuthenticationResponse {
+impl<'r> FromRequest<'r> for AuthenticationResponse {
     type Error = ();
 
-    async fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
-        let code = request.get_query_value("code").and_then(|code| code.ok());
-        let state: Option<String> = request
-            .get_query_value("state")
-            .and_then(|state| state.ok());
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        let code = request.query_value("code").and_then(|code| code.ok());
+        let state: Option<String> = request.query_value("state").and_then(|state| state.ok());
         let session_state = request
-            .get_query_value("session_state")
+            .query_value("session_state")
             .and_then(|session_state| session_state.ok());
 
         let auth_response = match (code, state, session_state) {
             (Some(code), Some(state), Some(session_state)) => {
                 let cookies = request.cookies();
 
-                let state_cookie = cookies.get_private("oicd_state");
+                let state_cookie = cookies.get_private("oidc_state");
                 match state_cookie {
-                    Some(stored_state) if stored_state.value().to_string() == state => {
+                    Some(stored_state) if *stored_state.value() == state => {
                         cookies.remove(stored_state.clone());
                     }
                     other => {
@@ -351,7 +375,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for AuthenticationResponse {
                     }
                 }
 
-                let nonce_cookie = cookies.get_private("oicd_nonce");
+                let nonce_cookie = cookies.get_private("oidc_nonce");
                 let nonce = match nonce_cookie {
                     Some(stored_nonce) => {
                         cookies.remove(stored_nonce.clone());

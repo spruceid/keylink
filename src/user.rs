@@ -1,25 +1,28 @@
 use crate::hatch;
+use anyhow::{anyhow, Error};
 use hatch::OidcHatch;
-use log::info;
 use rocket::{
-    info_, log_,
+    http::Status,
+    info_,
     request::{FromRequest, Outcome},
+    serde::Serialize,
     Request,
 };
 use rocket_airlock::{Airlock, Hatch};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub(crate) struct User {
-    pub(crate) name: String,
+    pub(crate) name: Option<String>,
+    pub(crate) email: String,
 }
 
 #[rocket::async_trait]
-impl<'a, 'r> FromRequest<'a, 'r> for User {
-    type Error = ();
+impl<'a> FromRequest<'a> for User {
+    type Error = Error;
 
-    async fn from_request(request: &'a Request<'r>) -> Outcome<Self, Self::Error> {
+    async fn from_request(request: &'a Request<'_>) -> Outcome<Self, Self::Error> {
         let cookies = request.cookies();
-        match cookies.get_private("oicd_access_token") {
+        match cookies.get_private("oidc_access_token") {
             Some(token_cookie) => {
                 let hatch = request
                     .guard::<Airlock<OidcHatch>>()
@@ -31,13 +34,19 @@ impl<'a, 'r> FromRequest<'a, 'r> for User {
                     .hatch;
 
                 if hatch.validate_access_token(token_cookie.value()) {
-                    let username = cookies.get_private("username").unwrap().value().to_string();
-
-                    info_!("User '{}' logged in!", &username);
-                    return Outcome::Success(User { name: username });
+                    let name = cookies
+                        .get_private("preferred_username")
+                        .map(|u| u.value().to_string());
+                    if let Some(email) = cookies.get_private("email").map(|e| e.value().to_string())
+                    {
+                        info_!("User '{}' logged in!", &email);
+                        Outcome::Success(User { name, email })
+                    } else {
+                        Outcome::Failure((Status::InternalServerError, anyhow!("No email cookie.")))
+                    }
+                } else {
+                    Outcome::Forward(())
                 }
-
-                Outcome::Forward(())
             }
             _ => Outcome::Forward(()),
         }

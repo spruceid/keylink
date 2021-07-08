@@ -1,0 +1,21 @@
+[
+    {
+        "ClientId": "mock-client",
+        "ClientSecrets": [
+          "mock-client-secret"
+        ],
+        "AllowedGrantTypes": [
+            "authorization_code"
+        ],
+        "AlwaysIncludeUserClaimsInIdToken": true,
+        "RequirePkce": false,
+        "RedirectUris": [
+            "*"
+        ],
+        "AllowedScopes": [
+            "openid",
+            "profile",
+            "email"
+        ]
+    }
+]
