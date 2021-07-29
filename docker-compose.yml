@@ -65,7 +65,9 @@ services:
       # it uses "authorization_code" because hybrid flow doesn't seem to work
 
   db:
-    image: postgres:9.6.20
+    build:
+      context: .
+      dockerfile: Dockerfile-postgres
     ports:
       - "5432:5432"
     environment:
