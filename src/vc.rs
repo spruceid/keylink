@@ -22,7 +22,7 @@ pub async fn issue_iscc_vc(
     let issuer = DIDKey.generate(&Source::Key(&jwk)).unwrap();
 
     let iscc = if content_type.is_text() {
-        get_iscc_id_text(title, &std::str::from_utf8(doc)?)
+        get_iscc_id_text(title, std::str::from_utf8(doc)?)
             .map_err(|_| anyhow!("ISCC generation failed"))?
     } else {
         return Err(anyhow!(
@@ -64,7 +64,7 @@ pub async fn verify_iscc_vc(
     content_type: &ContentType,
 ) -> Result<bool> {
     let iscc = if content_type.is_text() {
-        get_iscc_id_text(title, &std::str::from_utf8(doc)?)
+        get_iscc_id_text(title, std::str::from_utf8(doc)?)
             .map_err(|_| anyhow!("ISCC generation failed"))?
     } else {
         return Err(anyhow!(

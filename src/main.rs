@@ -95,7 +95,7 @@ async fn bytes_sign(
     if let Some(key) = db::get_key(user.email, form.key.clone(), &conn).await? {
         let sig = jws::sign_bytes_b64(
             Algorithm::EdDSA,
-            &form.doc.as_bytes(),
+            form.doc.as_bytes(),
             &serde_json::from_value(key.jwk)
                 .map_err(|e| anyhow!("Error while deserializing JWK: {}", e))?,
         )
@@ -123,7 +123,7 @@ async fn bytes_verify(
     if let Some(key) = db::get_key(user.email, form.key.clone(), &conn).await? {
         jws::verify_bytes(
             Algorithm::EdDSA,
-            &form.doc.as_bytes(),
+            form.doc.as_bytes(),
             &serde_json::from_value(key.jwk)
                 .map_err(|e| anyhow!("Error while deserializing JWK: {}", e))?,
             &decoded_sig,
@@ -243,7 +243,7 @@ async fn vc_issue(
         // TODO consider using DIDKit to cover all cases, e.g. JWT
         let proof = form
             .credential
-            .generate_proof(&jwk, &form.options)
+            .generate_proof(jwk, &form.options)
             .await
             .map_err(|e| anyhow!("Error generating credential proof: {}", e))?;
         res.add_proof(proof);

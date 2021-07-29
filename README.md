@@ -17,21 +17,19 @@ with existing PKI and KMS installations.
 ### Dependencies
 You need to install the following dependencies:
 ```
-sqlite-devel
+postgres-devel
 ```
+> libpq on Homebrew
 
 ## Test
 
-### Keycloak
-You can start Keycloak with `docker-compose up -d` and then access it at
-http://localhost:8080/auth/.
+Necessary services are provided in the docker-compose:
+```bash
+$ docker-compose up -d
+```
 
-Some set-up is required.
-* Log in with `admin/admin`.
-* Modify `Valid Redirect URIs` in `Client > account` to `*` to allow the
-  redirection from Keycloak to Keylink.
-* Copy the secret in `Client > account > Credentials` and put it in `client_secret`
-  in the `Rocket.toml` config file.
+### OIDC
+A test user is provided with the credentials `user1/pwd`.
 
 ### Keylink
 * Run `cargo run` and visit http://127.0.0.1:8000.
@@ -39,14 +37,14 @@ Some set-up is required.
 ## Contributing
 
 ### Modify the database table
-First, modify `migrations/2020-11-03-101531_create_keys_table/up.sql`, and then
+First, modify `migrations/2020-11-03-101531_create_keylink/up.sql`, and then
 run:
 
 ```bash
-$ diesel migration redo --database-url db.sqlite
+$ diesel migration redo --database-url postgres://postgres:postgres@localhost/keylink
 ```
 
 Note: you need the Diesel CLI, so run:
 ```bash
-cargo install diesel_cli --no-default-features --features sqlite
+cargo install diesel_cli --no-default-features --features postgres
 ```
