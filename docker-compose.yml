@@ -12,6 +12,10 @@ services:
           "AccessTokenJwtType": "JWT",
           "Discovery": {
             "ShowKeySet": true
+          },
+          "Authentication": {
+            "CookieSameSiteMode": "Lax",
+            "CheckSessionCookieSameSiteMode": "Lax"
           }
         }
       ACCOUNT_OPTIONS_INLINE: |

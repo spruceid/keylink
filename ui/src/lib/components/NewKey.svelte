@@ -25,7 +25,6 @@
 
 <Dialog bind:value={showDialog}>
 	<h5 slot="title">New Key</h5>
-	<p>{JSON.stringify($keys)}</p>
 	<h6>Name</h6>
 	<TextField bind:value={keyName} type="string" min-length="1" />
 	<div slot="actions">
