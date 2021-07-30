@@ -12,12 +12,15 @@
 	let credential = null;
 
 	let submit = async () => {
-		const form = new URLSearchParams();
-		form.append('key', keyName);
-		form.append('credential', credential);
 		let res = await fetch('/credentials/issue', {
 			method: 'POST',
-			body: form
+			headers: {
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				key: keyName,
+				credential: JSON.parse(credential)
+			})
 		});
 		if (res.ok) {
 			code = JSON.stringify(await res.json(), null, 2);

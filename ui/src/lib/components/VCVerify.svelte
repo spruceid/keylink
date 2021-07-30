@@ -3,16 +3,20 @@
 
 	let showDialog1 = false;
 	let showDialog2 = false;
+	// TODO should this verify the VC was issued by this key -- or should we have only a signle button to verify VCs
 	export let keyName;
 	let credential = null;
 	let valid = null;
 
 	let submit = async () => {
-		const form = new URLSearchParams();
-		form.append('credential', credential);
 		let res = await fetch('/credentials/verify', {
 			method: 'POST',
-			body: form
+			headers: {
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				credential: JSON.parse(credential)
+			})
 		});
 		if (res.ok) {
 			valid = true;
