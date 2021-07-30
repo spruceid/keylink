@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { logged_in, keys } from '$lib/stores';
 	import { onMount } from 'svelte';
+	import { notifier, Notifications } from 'smelte';
 
 	import BlobSign from '$lib/components/BlobSign.svelte';
 	import NewKey from '$lib/components/NewKey.svelte';
@@ -17,7 +18,9 @@
 		}
 		const res = await fetch('/keys');
 		if (res.ok) {
-			keys.set(await res.json());
+			$keys = await res.json();
+		} else if (res.status == 404) {
+			$keys = [];
 		} else {
 			const res = await fetch('/user');
 			if (!res.ok) {
@@ -26,7 +29,7 @@
 				goto('/');
 			}
 			const { message } = await res.json();
-			throw new Error(message);
+			notifier.error(message);
 		}
 	});
 </script>
@@ -44,6 +47,8 @@
 	</div>
 {/each}
 <NewKey />
+
+<Notifications />
 
 <style>
 	.key-div {

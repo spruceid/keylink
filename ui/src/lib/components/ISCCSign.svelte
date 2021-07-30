@@ -37,6 +37,9 @@
 	<h5 slot="title">Issue ISCC VC</h5>
 	<h6>File</h6>
 	<input type="file" bind:files />
+	<blockquote class="pl-2 mt-2 mb-10 border-l-8 border-primary-300">
+		<p>Only .txt files are supported for now.</p>
+	</blockquote>
 	<div slot="actions">
 		<Button text on:click={() => (showDialog1 = false)}>Cancel</Button>
 		<Button text outlined disabled={!files} on:click={async () => await submit()}>Issue</Button>

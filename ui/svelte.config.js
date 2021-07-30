@@ -17,10 +17,9 @@ const config = {
 		adapter: adapter({
 			// fallback: 'index.html'
 		}),
-		prerender: {
-			onError: "continue" // because there's a bug atm with external links not being treated as external
+		// prerender: {
 		// 	enabled: false
-		},
+		// },
 		// ssr: false
 		vite: {
 			optimizeDeps: {

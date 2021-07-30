@@ -27,7 +27,7 @@ use rocket::{
     form::Form,
     fs::{FileServer, TempFile},
     get,
-    response::{Debug, Redirect},
+    response::Debug,
     routes,
     serde::json::Json,
     tokio::fs::read,
@@ -46,6 +46,7 @@ async fn user_(user: User) -> Json<User> {
     Json(user)
 }
 
+// TODO Maybe it should just return empty Vec instead of None
 #[get("/keys")]
 async fn keys_list(
     user: User,
@@ -68,7 +69,7 @@ async fn keys_create(
     form: Json<NewKeyForm>,
     user: User,
     conn: KeylinkDbConn,
-) -> Result<Redirect, Debug<Error>> {
+) -> Result<(), Debug<Error>> {
     let jwk = JWK::generate_ed25519().map_err(|e| anyhow!("Key generation errorr: {}", e))?;
     let new_key = NewKey {
         user_id: user.email,
@@ -77,7 +78,7 @@ async fn keys_create(
             .map_err(|e| anyhow!("Error while serializing JWK: {}", e))?,
     };
     db::insert_key(new_key, &conn).await?;
-    Ok(Redirect::to("/"))
+    Ok(())
 }
 
 #[derive(FromForm)]
