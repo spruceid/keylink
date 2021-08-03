@@ -1,0 +1,20 @@
+@startuml
+participant "Kepler" as kb
+participant "Kepler Frontend" as kf
+actor Alice
+participant Keylink
+participant "Identity Provider" as idp
+
+Alice -> kf : Wants to upload a file
+kf --> Alice : Redirect to Keylink for\nthe ZCAP to be signed
+Alice --> Keylink
+
+note over Alice, idp
+  OIDC Authentication
+end note
+
+Alice -> Keylink : Select which key to\nsign the VC (ZCAP) with
+Keylink --> Alice : Redirect with the signed VC
+Alice --> kf
+Alice --> kb : Authenticated file upload
+@enduml
