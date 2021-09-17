@@ -23,7 +23,7 @@ rocket_sync_db_pools = { version = "0.1.0-rc.1", features = ["diesel_postgres_po
 diesel = { version = "1.4", features = ["postgres", "chrono", "serde_json"] }
 diesel_migrations = "1.4"
 
-ssi = { version = "0.2" }
+ssi = { version = "0.3" }
 did-method-key = { version = "0.1" }
 iscc-rs = { git = "https://github.com/sbihel/iscc-rs", rev = "27839eaff697236c601138e3263a9d9d3ef9783b" }
 chrono = { version = "0.4", features = ["serde"] }
