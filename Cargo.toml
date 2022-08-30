@@ -20,7 +20,7 @@ openidconnect = "2.1"
 rocket_airlock = "0.3.0-rc.1"
 rocket_sync_db_pools = { version = "0.1.0-rc.1", features = ["diesel_postgres_pool"] }
 
-diesel = { version = "1.4", features = ["postgres", "chrono", "serde_json"] }
+diesel = { version = "2.0", features = ["postgres", "chrono", "serde_json"] }
 diesel_migrations = "1.4"
 
 ssi = { version = "0.2" }
